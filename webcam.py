@@ -21,6 +21,12 @@ capture=None
 
 class CamHandler(BaseHTTPRequestHandler):
   def do_GET(self):
+    if self.path == '/?snapshot':
+      self.sendSnapshot()
+    else:
+      self.streamVideo()
+
+  def streamVideo(self):
     self.send_response(200)
     self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=--jpgboundary')
     self.end_headers()
@@ -40,6 +46,22 @@ class CamHandler(BaseHTTPRequestHandler):
         time.sleep(0.05)
       except:
         break
+
+  def sendSnapshot(self):
+    self.send_response(200)
+    try:
+      rc,img = capture.read()
+      if not rc:
+        return
+      jpg = Image.fromarray(img)
+      tmpFile = BytesIO()
+      jpg.save(tmpFile, "JPEG")
+      self.send_header('Content-type', 'image/jpeg')
+      self.send_header('Content-length', str( len(tmpFile.getvalue()) ))
+      self.end_headers()
+      self.wfile.write( tmpFile.getvalue() )
+    except:
+      pass
  
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
   """Handle requests in a separate thread."""
