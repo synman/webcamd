@@ -32,9 +32,10 @@ class CamHandler(BaseHTTPRequestHandler):
     self.end_headers()
     while True:
       try:
-        rc,img = capture.read()
+        rc,img_bgr = capture.read()
         if not rc:
           continue
+        img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         jpg = Image.fromarray(img)
         tmpFile = BytesIO()
         jpg.save(tmpFile, "JPEG")
