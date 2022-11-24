@@ -48,7 +48,7 @@ optional arguments:
 ## Useful Information
 Specify `/?stream` to stream, `/?snapshot` for a picture, or `/?info` for statistics and configuration information.
 
-You can rotate the encoded image for all clients using the `--rotate` command line option (adds overhead at the encoder) and/or you can also specify on a per stream basis with the `&rotate=` querystring option, ie:  /?stream&rotate=1, which offloads the rotation to the client session thread.
+You can rotate the encoded image for all clients using the `--rotate` command line option (adds overhead at the encoder) and/or you can also specify on a per stream basis with the `&rotate=` querystring option (`/?stream&rotate=#` or `/?snapshot&rotate=#`) which offloads the rotation to the client session thread.
 
 `--encodewait` and `--streamwait` can be used to rebalance the priority of encoding vs streaming.  
 

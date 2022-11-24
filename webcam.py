@@ -37,8 +37,12 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         global snapshots
 
         if self.path.lower().startswith("/?snapshot"):
-            self.sendSnapshot()
             snapshots = snapshots + 1
+            qs = parse_qs(urlparse(self.path).query)
+            if "rotate" in qs:
+                self.sendSnapshot(rotate=int(qs["rotate"][0]))
+                return
+            self.sendSnapshot()
             return
 
         if self.path.lower().startswith("/?stream"):
@@ -133,14 +137,15 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         if streamKey in streamFps: streamFps.pop(streamKey)
         self.server.dropSession()
 
-    def sendSnapshot(self):
+    def sendSnapshot(self, rotate=-1):
         global lastImage
 
         self.server.addSession()
-        jpg = Image.fromarray(self.server.getImage())
 
         try:
             self.send_response(200)
+
+            jpg = Image.fromarray(cv2.rotate(self.server.getImage(), rotate) if rotate != -1 else self.server.getImage())
 
             tmpFile = BytesIO()
             jpg.save(tmpFile, "JPEG")
@@ -148,6 +153,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-type", "image/jpeg")
             self.send_header("Content-length", str(len(tmpFile.getvalue())))
             self.end_headers()
+
             self.wfile.write(tmpFile.getvalue())
         except Exception as e:
             print("%s: error in snapshot: [%s]" % (datetime.datetime.now(), e), flush=True)
