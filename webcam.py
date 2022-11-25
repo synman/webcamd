@@ -259,7 +259,7 @@ def main():
     # Process(target=web_server_thread).start()
 
     # wait for our webserver to start
-    while webserver is None:
+    while webserver is None and exitCode == os.EX_OK:
         time.sleep(.01)
 
     # initialize our opencv encoder
