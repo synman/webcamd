@@ -6,14 +6,15 @@
 # Fixes by Christopher RYU <software-github@disavowed.jp>
 # Major refactor and threading optimizations by Shell Shrader <shell@shellware.com>
 
-import cv2
-import threading
-import signal
-import time
+import os
 import sys
-import socket
-import argparse
+import time
 import datetime
+import signal
+import threading
+import socket
+import cv2
+import argparse
 import json
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -22,6 +23,7 @@ from urllib.parse import urlparse, parse_qs
 from PIL import Image
 from io import BytesIO
 
+exitCode = os.EX_OK
 myargs = None
 webserver = None
 lastImage = None
@@ -32,6 +34,7 @@ snapshots = 0
 
 class WebRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global exitCode
         global myargs
         global streamFps
         global snapshots
@@ -73,6 +76,20 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             jsonstr = ('{"stats":{"server": "%s", "encodeFps": %.2f, "sessionCount": %d, "avgStreamFps": %.2f, "sessions": %s, "snapshots": %d}, "config": %s}' % (host, self.server.getEncodeFps(), len(streamFps), fpsavg, json.dumps(streamFps) if len(streamFps) > 0 else "{}", snapshots, json.dumps(vars(myargs))))
             self.wfile.write(jsonstr.encode("utf-8"))
             return
+
+        if self.path.lower().startswith("/?shutdown"):
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+
+            client = ("%s:%d" % (self.client_address[0], self.client_address[1]))
+            print("%s: shutdown requested by %s" % (datetime.datetime.now(), client), flush=True)
+
+            exitCode = os.EX_TEMPFAIL
+            self.server.shutdown()
+            self.server.unlockEncoder()
+            return
+
 
         self.send_response(404)
         self.send_header("Content-type", "text/html")
@@ -161,6 +178,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         self.server.dropSession()
 
 def web_server_thread():
+    global exitCode
     global myargs
     global webserver
     global encoderLock
@@ -175,6 +193,7 @@ def web_server_thread():
         print("%s: web server started" % datetime.datetime.now(), flush=True)
         webserver.serve_forever()
     except Exception as e:
+        exitCode = os.EX_SOFTWARE
         print("%s: web server error: [%s]" % (datetime.datetime.now(), e), flush=True)
 
     print("%s: web server thread dead" % (datetime.datetime.now()), flush=True)
@@ -209,7 +228,9 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
             encoderLock.acquire()
             encodeFps = 0.
             streamFps = {}
-
+    def unlockEncoder(self):
+        global encoderLock
+        if encoderLock.locked(): encoderLock.release()
     def getSessions(self):
         return self.sessions
     def getEncodeFps(self):
@@ -220,6 +241,7 @@ class ThreadingHTTPServerV6(ThreadingHTTPServer):
         address_family = socket.AF_INET6
 
 def main():
+    global exitCode
     global myargs
     global webserver
     global lastImage
@@ -236,6 +258,11 @@ def main():
     threading.Thread(target=web_server_thread).start()
     # Process(target=web_server_thread).start()
 
+    # wait for our webserver to start
+    while webserver is None:
+        time.sleep(.01)
+
+    # initialize our opencv encoder
     capture = cv2.VideoCapture(myargs.index)
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
@@ -243,7 +270,7 @@ def main():
     frames = 0
     startTime = time.time()
 
-    while True:
+    while not webserver is None and webserver.isRunning():
         if  time.time() > startTime + 5:
             encodeFps = frames / 5.
             if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
@@ -254,6 +281,7 @@ def main():
             if not rc:
                 print("%s: restarting encoder due to timeouts" % datetime.datetime.now(), flush=True)
                 capture.release()
+                time.sleep(myargs.encodewait)
                 capture = cv2.VideoCapture(myargs.index)
                 capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
                 capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
@@ -273,14 +301,16 @@ def main():
         except KeyboardInterrupt:
             break
         except Exception as e:
+            exitCode = os.EX_SOFTWARE
             print("%s: error in capture: [%s]" % (datetime.datetime.now(), e), flush=True)
             break
 
-    if not webserver is None:
+    if not webserver is None and webserver.isRunning():
         print("%s: web server shutting down" % (datetime.datetime.now()), flush=True)
         webserver.shutdown()
 
-    print("%s: Goodbye!" % (datetime.datetime.now()), flush=True)
+    print("%s: ExitCode=%d - Goodbye!" % (datetime.datetime.now(), exitCode), flush=True)
+    sys.exit(exitCode)
 
 def parseArgs():
     global myargs
