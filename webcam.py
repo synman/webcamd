@@ -292,12 +292,13 @@ def main():
 
             lastImage = img
 
+            time.sleep(myargs.encodewait)
+            frames = frames + 1.0
+
             if encoderLock.locked():
                 encoderLock.acquire()
                 encoderLock.release()
 
-            time.sleep(myargs.encodewait)
-            frames = frames + 1.0
         except KeyboardInterrupt:
             break
         except Exception as e:
