@@ -20,7 +20,7 @@ import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
-from PIL import Image
+from PIL import ImageFont, ImageDraw, Image
 from io import BytesIO
 
 exitCode = os.EX_OK
@@ -45,6 +45,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             if "rotate" in qs:
                 self.sendSnapshot(rotate=int(qs["rotate"][0]))
                 return
+            if myargs.rotate != -1:
+                self.sendSnapshot(rotate=myargs.rotate)
+                return
             self.sendSnapshot()
             return
 
@@ -52,6 +55,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             if "rotate" in qs:
                 self.streamVideo(rotate=int(qs["rotate"][0]))
+                return
+            if myargs.rotate != -1:
+                self.streamVideo(rotate=myargs.rotate)
                 return
             self.streamVideo()
             return
@@ -105,12 +111,12 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         if not myargs.loghttp: return
         print(("%s: " % datetime.datetime.now()) + (format % args), flush=True)
 
-    def streamVideo(self, rotate=-1):
+
+    def streamVideo(self, rotate=-1, showFps = False):
         global myargs
         global streamFps
 
         frames = 0
-        startTime = time.time()
         self.server.addSession()
         streamKey = ("%s:%d" % (self.client_address[0], self.client_address[1]))
 
@@ -124,14 +130,38 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             print("%s: error in stream %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
             return
 
+        fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
+        fpsW, fpsH = fpsFont.getsize("A")
+        startTime = time.time()
+        primed = False
+
         while self.server.isRunning():
             if time.time() > startTime + 5:
                 streamFps[streamKey] = frames / 5.
-                if myargs.showfps: print("%s: streaming @ %.2f FPS to %s - wait time %.5f" % (datetime.datetime.now(), frames / 5., streamKey, myargs.streamwait), flush=True)
+                # if myargs.showfps: print("%s: streaming @ %.2f FPS to %s - wait time %.5f" % (datetime.datetime.now(), streamFps[streamKey], streamKey, myargs.streamwait), flush=True)
                 frames = 0
                 startTime = time.time()
+                primed = True
 
-            jpg = Image.fromarray(cv2.rotate(self.server.getImage(), rotate) if rotate != -1 else self.server.getImage())
+            jpg = self.server.getImage()
+            if rotate != -1: jpg = jpg.rotate(rotate)
+
+            if myargs.showfps and primed: 
+                draw = ImageDraw.Draw(jpg)
+                draw.text((0, 0), "%s" % datetime.datetime.now(), font=fpsFont)
+                draw.text((0, fpsH + 1), "%s" % streamKey, font=fpsFont)
+                draw.text((0, fpsH * 2 + 2), "Encode: %.0f FPS" % self.server.getEncodeFps(), font=fpsFont)
+                if streamKey in streamFps: 
+                    fpssum = 0.
+                    fpsavg = 0.
+                    for fps in streamFps:
+                        fpssum = fpssum + streamFps[fps]
+
+                    if len(streamFps) > 0:
+                        fpsavg = fpssum / len(streamFps)
+                    else:
+                        fpsavg = 0.
+                    draw.text((0, fpsH * 3 + 3), "Streams: %d @ %.1f FPS (avg)" % (len(streamFps), streamFps[streamKey]), font=fpsFont)
 
             try:
                 tmpFile = BytesIO()
@@ -153,6 +183,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         if streamKey in streamFps: streamFps.pop(streamKey)
         self.server.dropSession()
 
+
     def sendSnapshot(self, rotate=-1):
         global lastImage
 
@@ -161,7 +192,8 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         try:
             self.send_response(200)
 
-            jpg = Image.fromarray(cv2.rotate(self.server.getImage(), rotate) if rotate != -1 else self.server.getImage())
+            jpg = self.server.getImage()
+            if rotate != -1: jpg = jpg.rotate(rotate)
 
             tmpFile = BytesIO()
             jpg.save(tmpFile, "JPEG")
@@ -272,7 +304,7 @@ def main():
     while not webserver is None and webserver.isRunning():
         if  time.time() > startTime + 5:
             encodeFps = frames / 5.
-            if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
+            # if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
             frames = 0
             startTime = time.time()
         try:
@@ -286,10 +318,12 @@ def main():
                 capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
                 continue
 
-            img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            if myargs.rotate != -1: img = cv2.rotate(img, myargs.rotate)
+            # img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            # if myargs.rotate != -1: img = cv2.rotate(img, myargs.rotate)
+            # img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
+            # if myargs.rotate != -1: img = img.rotate(myargs.rotate)
 
-            lastImage = img
+            lastImage = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
 
             time.sleep(myargs.encodewait)
             frames = frames + 1.0
@@ -311,6 +345,7 @@ def main():
 
     print("%s: ExitCode=%d - Goodbye!" % (datetime.datetime.now(), exitCode), flush=True)
     sys.exit(exitCode)
+
 
 def parseArgs():
     global myargs
@@ -358,17 +393,15 @@ def parseArgs():
         "--streamwait", type=float, default=.01, help="seconds to pause between streaming frames (default .01)"
     )
     parser.add_argument(
-        "--rotate", type=int, default=-1, help="rotate captured image 0=90+, 1=180, 2=90- (default no rotation)"
+        "--rotate", type=int, default=-1, help="rotate captured image 1-359 in degrees - (default no rotation)"
     )
     parser.add_argument('--showfps', action='store_true', help="periodically show encoding / streaming frame rate (default false)")
     parser.add_argument('--loghttp', action='store_true', help="enable http server logging (default false)")
 
     myargs = parser.parse_args()
 
-
 def exit_gracefully(signum, frame):
     raise KeyboardInterrupt()
-
 
 if __name__ == "__main__":
     main()
