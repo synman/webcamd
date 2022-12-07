@@ -118,7 +118,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
         frames = 0
         self.server.addSession()
-        streamKey = ("%s:%d" % (self.client_address[0], self.client_address[1]))
+        streamKey = ("%s:%d" % (socket.getnameinfo((self.client_address[0], 0), 0)[0], self.client_address[1]))
 
         try:
             self.send_response(200)
@@ -148,19 +148,15 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             if myargs.showfps and primed: 
                 draw = ImageDraw.Draw(jpg)
-                draw.text((0, 0), "%s" % datetime.datetime.now(), font=fpsFont)
-                draw.text((0, fpsH + 1), "%s" % streamKey, font=fpsFont)
+                draw.text((0, 0), "%s" % streamKey, font=fpsFont)
+                draw.text((0, fpsH + 1), "%s" % datetime.datetime.now(), font=fpsFont)
                 draw.text((0, fpsH * 2 + 2), "Encode: %.0f FPS" % self.server.getEncodeFps(), font=fpsFont)
                 if streamKey in streamFps: 
                     fpssum = 0.
                     fpsavg = 0.
                     for fps in streamFps:
                         fpssum = fpssum + streamFps[fps]
-
-                    if len(streamFps) > 0:
-                        fpsavg = fpssum / len(streamFps)
-                    else:
-                        fpsavg = 0.
+                    fpsavg = fpssum / len(streamFps)
                     draw.text((0, fpsH * 3 + 3), "Streams: %d @ %.1f FPS (avg)" % (len(streamFps), streamFps[streamKey]), font=fpsFont)
 
             try:
@@ -194,6 +190,13 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             jpg = self.server.getImage()
             if rotate != -1: jpg = jpg.rotate(rotate)
+
+            fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
+            fpsW, fpsH = fpsFont.getsize("A")
+            draw = ImageDraw.Draw(jpg)
+            
+            draw.text((0, 0), "%s" % socket.getnameinfo((self.client_address[0], 0), 0)[0], font=fpsFont)
+            draw.text((0, fpsH + 1), "%s" % datetime.datetime.now(), font=fpsFont)
 
             tmpFile = BytesIO()
             jpg.save(tmpFile, "JPEG")
