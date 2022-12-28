@@ -1,11 +1,7 @@
 # webcamd - A High Performance (for python) MPJEG HTTP Server
 
 The most notable component is webcam.py.  It is a minimalist drop-in replacement
-for mjpg-streamer, written in python, that addresses the following issues:
-
-* Octoprint appends a seemingly-random session ID to the camera URI, which confuses the hell out of mjpg-streamer,
-* mjpg-streamer doesn’t appear to handle multiple simultaneous streams, resulting in the infuriating “403: Forbidden! frame already sent” error,
-* mjpg-streamer itself is complete overkill here.
+for mjpg-streamer, written in python.  It can also be completely decoupled from OctoPrint and used in your own custom environment.
 
 webcam.py is based on Igor Maculan’s “Simple Python Motion Jpeg” daemon (https://gist.github.com/n3wtron/4624820).  It has been reworked to run under python-3.x, accept command-line tunables, IPv6 support, and so forth.
 
@@ -15,7 +11,7 @@ webcam@.service is a systemd unit file for webcam.py.
 
 haproxy.cfg is a configuration file for haproxy that actually works with non-ancient versions of haproxy, and enforces SSL connections to Octoprint.
 
-In addition to Christopher RYU's <software-github@disavowed.jp> baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using opencv), and Python's multi-threaded HTTP server.
+In addition to Christopher RYU's <software-github@disavowed.jp> baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using opencv and pillow), and Python's multi-threaded HTTP server.
 
 ## Dependencies
 ```
@@ -82,3 +78,9 @@ You can rotate the encoded image for all clients using the `--rotate` command li
 }
 ```
 Statistics and `--showfps` logging update every 5 seconds.
+
+### Note:
+--showfps has been modified to embed a watermark on mjpeg streams and snapshots.  This, along with rotation, greatly impacts encoding and stream performance, but it is nice addition if you're okay with a +/- 10 FPS framerate when running on a SoC such as the pi zero2.
+
+<img width="289" alt="Screenshot 2022-12-28 at 1 35 02 PM" src="https://user-images.githubusercontent.com/1299716/209857494-437c9464-8ebf-44f8-8785-04df0a82a31a.png">
+
