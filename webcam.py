@@ -123,17 +123,18 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         try:
             self.send_response(200)
             self.send_header(
-                "Content-type", "multipart/x-mixed-replace; boundary=--jpgboundary"
+                "Content-type", "multipart/x-mixed-replace; boundary=boundarydonotcross"
             )
             self.end_headers()
         except Exception as e:
-            print("%s: error in stream %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
+            print("%s: error in stream header %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
             return
 
         fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
         fpsW, fpsH = fpsFont.getsize("A")
         startTime = time.time()
         primed = False
+        addBreaks = False
 
         while self.server.isRunning():
             if time.time() > startTime + 5:
@@ -161,12 +162,19 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             try:
                 tmpFile = BytesIO()
-                jpg.save(tmpFile, "JPEG")
+                jpg.save(tmpFile, format="JPEG")
 
-                self.wfile.write(b"--jpgboundary\n")
+                if not addBreaks:
+                    self.wfile.write(b"--boundarydonotcross\r\n")
+                    addBreaks = True
+                else:
+                    self.wfile.write(b"\r\n--boundarydonotcross\r\n")
+
                 self.send_header("Content-type", "image/jpeg")
-                self.send_header("Content-length", str(sys.getsizeof(tmpFile)))
+                self.send_header("Content-length", str(tmpFile.getbuffer().nbytes))
+                self.send_header("X-Timestamp", "0.000000")
                 self.end_headers()
+
                 self.wfile.write(tmpFile.getvalue())
 
                 time.sleep(myargs.streamwait)
