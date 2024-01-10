@@ -11,7 +11,7 @@ webcam@.service is a systemd unit file for webcam.py.
 
 haproxy.cfg is a configuration file for haproxy that actually works with non-ancient versions of haproxy, and enforces SSL connections to Octoprint.
 
-In addition to Christopher RYU's <software-github@disavowed.jp> baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using opencv and pillow), and Python's multi-threaded HTTP server.
+In addition to Christopher RYU's <software-github@disavowed.jp> baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using pillow), and Python's multi-threaded HTTP server.
 
 Bambu Printer support is based on proof of concept work found in bambulab/BambuStudio#1536 (comment) that were later optimized in [pybambu](https://github.com/greghesp/pybambu).
 
@@ -83,4 +83,7 @@ Statistics and `--showfps` logging update every 5 seconds.
 --showfps has been modified to embed a watermark on mjpeg streams and snapshots.  This, along with rotation, greatly impacts encoding and stream performance, but it is nice addition if you're okay with a +/- 10 FPS framerate when running on a SoC such as the pi zero2.
 
 <img width="289" alt="Screenshot 2022-12-28 at 1 35 02 PM" src="https://user-images.githubusercontent.com/1299716/209857494-437c9464-8ebf-44f8-8785-04df0a82a31a.png">
+
+<img width="1510" alt="Screenshot 2024-01-10 at 3 46 52 AM" src="https://github.com/synman/webcamd/assets/1299716/a530d168-8f7b-4ba3-81ce-8ad023f36b9d">
+
 
