@@ -1,11 +1,11 @@
 # webcamd - A High Performance (for python) MPJEG HTTP Server
 
+## <B>Now supports Bambu printers</B>
+
 The most notable component is webcam.py.  It is a minimalist drop-in replacement
 for mjpg-streamer, written in python.  It can also be completely decoupled from OctoPrint and used in your own custom environment.
 
 webcam.py is based on Igor Maculan’s “Simple Python Motion Jpeg” daemon (https://gist.github.com/n3wtron/4624820).  It has been reworked to run under python-3.x, accept command-line tunables, IPv6 support, and so forth.
-
-Please note that the webcam.py process needs read/write access to the video device (typically /dev/video0).  Adding the user that webcam.py runs as to the "video" group will usually suffice.
 
 webcam@.service is a systemd unit file for webcam.py.
 
@@ -13,20 +13,22 @@ haproxy.cfg is a configuration file for haproxy that actually works with non-anc
 
 In addition to Christopher RYU's <software-github@disavowed.jp> baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using opencv and pillow), and Python's multi-threaded HTTP server.
 
+Bambu Printer support is based on proof of concept work found in bambulab/BambuStudio#1536 (comment) that were later optimized in [pybambu](https://github.com/greghesp/pybambu).
+
 ## Dependencies
 ```
-pip install opencv-python
 pip install pillow
 ```
 ## Command Line Options
 ```
 webcam.py - A High Performance MJPEG HTTP Server
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
-  --width WIDTH         Web camera pixel width (default 1280)
-  --height HEIGHT       Web camera pixel height (default 720)
-  --index INDEX         Video device to stream /dev/video# (default #=0)
+  --hostname HOSTNAME   Bambu Printer IP address / hostname
+  --password PASSWORD   Bambu Printer Access Code
+  --width WIDTH         Web camera pixel width (default 1920)
+  --height HEIGHT       Web camera pixel height (default 1080)
   --ipv IPV             IP version (default=4)
   --v4bindaddress V4BINDADDRESS
                         IPv4 HTTP bind address (default '0.0.0.0')
@@ -34,10 +36,10 @@ optional arguments:
                         IPv6 HTTP bind address (default '::')
   --port PORT           HTTP bind port (default 8080)
   --encodewait ENCODEWAIT
-                        seconds to pause between encoding frames (default .01)
+                        not used
   --streamwait STREAMWAIT
-                        seconds to pause between streaming frames (default .01)
-  --rotate ROTATE       rotate captured image 0=90+, 1=180, 2=90- (default no rotation)
+                        not used - is set dynamically
+  --rotate ROTATE       rotate captured image 1-359 in degrees - (default no rotation)
   --showfps             periodically show encoding / streaming frame rate (default false)
   --loghttp             enable http server logging (default false)
 ```
@@ -45,9 +47,7 @@ optional arguments:
 Specify `/?stream` to stream, `/?snapshot` for a picture, or `/?info` for statistics and configuration information.
 
 You can rotate the encoded image for all clients using the `--rotate` command line option (adds overhead at the encoder) and/or you can also specify on a per stream basis with the `&rotate=` querystring option (`/?stream&rotate=#` or `/?snapshot&rotate=#`) which offloads the rotation to the client session thread.
-
-`--encodewait` and `--streamwait` can be used to rebalance the priority of encoding vs streaming.  
-
+ 
 `/?info` produces a json document that shows various information about the state of the encoder and active streams, as well as the active configuration.
 ```
 {
