@@ -5,17 +5,22 @@
 #
 # Fixes by Christopher RYU <software-github@disavowed.jp>
 # Major refactor and threading optimizations by Shell Shrader <shell@shellware.com>
-
+#
+# Bambu Printer Camera Streaming - SMS - Jan 2024
+#
 import os
 import sys
+import io
 import time
 import datetime
 import signal
 import threading
 import socket
-import cv2
 import argparse
 import json
+
+import struct
+import ssl
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -28,7 +33,7 @@ myargs = None
 webserver = None
 lastImage = None
 encoderLock = None
-encodeFps = 0.
+encodeFps = 0.0
 streamFps = {}
 snapshots = 0
 
@@ -130,8 +135,8 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             print("%s: error in stream header %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
             return
 
-        fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
-        fpsW, fpsH = fpsFont.getsize("A")
+        fpsFont = ImageFont.truetype("{}/SourceCodePro-Regular.ttf".format(os.path.dirname(os.path.realpath(__file__)), 20))
+        fpsT, fpsL, fpsW, fpsH = fpsFont.getbbox("A")
         startTime = time.time()
         primed = False
         addBreaks = False
@@ -151,7 +156,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 draw = ImageDraw.Draw(jpg)
                 draw.text((0, 0), "%s" % streamKey, font=fpsFont)
                 draw.text((0, fpsH + 1), "%s" % datetime.datetime.now(), font=fpsFont)
-                draw.text((0, fpsH * 2 + 2), "Encode: %.0f FPS" % self.server.getEncodeFps(), font=fpsFont)
+                draw.text((0, fpsH * 2 + 2), "Encode: %.1f FPS" % self.server.getEncodeFps(), font=fpsFont)
                 if streamKey in streamFps: 
                     fpssum = 0.
                     fpsavg = 0.
@@ -199,8 +204,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             jpg = self.server.getImage()
             if rotate != -1: jpg = jpg.rotate(rotate)
 
-            fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
-            fpsW, fpsH = fpsFont.getsize("A")
+            fpsFont = ImageFont.truetype("{}/SourceCodePro-Regular.ttf".format(os.path.dirname(os.path.realpath(__file__)), 20))
+            fpsT, fpsL, fpsW, fpsH = fpsFont.getbbox("A")
+
             draw = ImageDraw.Draw(jpg)
             
             draw.text((0, 0), "%s" % socket.getnameinfo((self.client_address[0], 0), 0)[0], font=fpsFont)
@@ -268,7 +274,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         self.sessions = self.sessions - 1
         if self.sessions == 0 and not encoderLock.locked():
             encoderLock.acquire()
-            encodeFps = 0.
+            encodeFps = 0.0
             streamFps = {}
     def unlockEncoder(self):
         global encoderLock
@@ -304,51 +310,139 @@ def main():
     while webserver is None and exitCode == os.EX_OK:
         time.sleep(.01)
 
-    # initialize our opencv encoder
-    capture = cv2.VideoCapture(myargs.index)
-    capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
-    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
-
     frames = 0
     startTime = time.time()
 
-    while not webserver is None and webserver.isRunning():
-        if  time.time() > startTime + 5:
-            encodeFps = frames / 5.
-            # if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
-            frames = 0
-            startTime = time.time()
+    username = 'bblp'
+    access_code = myargs.password
+    hostname = myargs.hostname
+    port = 6000
+
+    MAX_CONNECT_ATTEMPTS = 12
+
+    auth_data = bytearray()
+    connect_attempts = 0
+
+    auth_data += struct.pack("<I", 0x40)   # '@'\0\0\0
+    auth_data += struct.pack("<I", 0x3000) # \0'0'\0\0
+    auth_data += struct.pack("<I", 0)      # \0\0\0\0
+    auth_data += struct.pack("<I", 0)      # \0\0\0\0
+    for i in range(0, len(username)):
+        auth_data += struct.pack("<c", username[i].encode('ascii'))
+    for i in range(0, 32 - len(username)):
+        auth_data += struct.pack("<x")
+    for i in range(0, len(access_code)):
+        auth_data += struct.pack("<c", access_code[i].encode('ascii'))
+    for i in range(0, 32 - len(access_code)):
+        auth_data += struct.pack("<x")
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    jpeg_start = bytearray([0xff, 0xd8, 0xff, 0xe0])
+    jpeg_end = bytearray([0xff, 0xd9])
+
+    read_chunk_size = 4096 # 4096 is the max we'll get even if we increase this.
+
+    # Payload format for each image is:
+    # 16 byte header:
+    #   Bytes 0:3   = little endian payload size for the jpeg image (does not include this header).
+    #   Bytes 4:7   = 0x00000000
+    #   Bytes 8:11  = 0x00000001
+    #   Bytes 12:15 = 0x00000000
+    # These first 16 bytes are always delivered by themselves.
+    #
+    # Bytes 16:19                       = jpeg_start magic bytes
+    # Bytes 20:payload_size-2           = jpeg image bytes
+    # Bytes payload_size-2:payload_size = jpeg_end magic bytes
+    #
+    # Further attempts to receive data will get SSLWantReadError until a new image is ready (1-2 seconds later)
+    while connect_attempts < MAX_CONNECT_ATTEMPTS and not webserver is None and webserver.isRunning():
         try:
-            rc, img_bgr = capture.read()
-            if not rc:
-                print("%s: restarting encoder due to timeouts" % datetime.datetime.now(), flush=True)
-                capture.release()
-                time.sleep(myargs.encodewait)
-                capture = cv2.VideoCapture(myargs.index)
-                capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
-                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
-                continue
+            with socket.create_connection((hostname, port)) as sock:
+                try:
+                    connect_attempts += 1
+                    sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
+                    sslSock.write(auth_data)
+                    img = None
+                    payload_size = 0
 
-            # img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            # if myargs.rotate != -1: img = cv2.rotate(img, myargs.rotate)
-            # img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-            # if myargs.rotate != -1: img = img.rotate(myargs.rotate)
+                    status = sslSock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                    if status != 0:
+                        print("Socket error: {status}")
+                except socket.error as e:
+                    print(e)
+                    pass
 
-            lastImage = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
+                sslSock.setblocking(False)
+                while not webserver is None and webserver.isRunning():
+                    if  time.time() > startTime + 5:
+                        encodeFps = frames / 5.
+                        myargs.streamwait = 1 / encodeFps
+                        # if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
+                        frames = 0
+                        startTime = time.time()
 
-            time.sleep(myargs.encodewait)
-            frames = frames + 1.0
+                    try:
+                        sslSock.settimeout(5.0)
+                        dr = sslSock.recv(read_chunk_size)
 
-            if encoderLock.locked():
-                encoderLock.acquire()
-                encoderLock.release()
+                    except ssl.SSLWantReadError:
+                        print("SSLWantReadError")
+                        time.sleep(1)
+                        continue
 
-        except KeyboardInterrupt:
-            break
+                    except Exception as e:
+                        print(e)
+                        time.sleep(1)
+                        continue
+
+                    if img is not None and len(dr) > 0:
+                        img += dr
+                        if len(img) > payload_size:
+                            # We got more data than we expected.
+                            img = None
+                        elif len(img) == payload_size:
+                            # We should have the full image now.
+                            if img[:4] != jpeg_start:
+                                pass
+                                # LOGGER.error("JPEG start magic bytes missing.")
+                            elif img[-2:] != jpeg_end:
+                                pass
+                                # LOGGER.error("JPEG end magic bytes missing.")
+                            else:
+                                lastImage = Image.open(io.BytesIO(img)).convert('RGB')
+                                frames = frames + 1.0
+                                if encoderLock.locked():
+                                    encoderLock.acquire()
+                                    encoderLock.release()
+                            # Reset buffer
+                            img = None
+                        # else:     
+                        # Otherwise we need to continue looping without reseting the buffer to receive the remaining data
+                        # and without delaying.
+
+                    elif len(dr) == 16:
+                        # We got the header bytes. Get the expected payload size from it and create the image buffer bytearray.
+                        # Reset connect_attempts now we know the connect was successful.
+                        connect_attempts = 0
+                        img = bytearray()
+                        payload_size = int.from_bytes(dr[0:3], byteorder='little')
+
+                    elif len(dr) == 0:
+                        # This occurs if the wrong access code was provided.
+                        # LOGGER.error(f"{self._client._device.info.device_type}: Chamber image connection rejected by the printer. Check provided access code and IP address.")
+                        # Sleep for a short while and then re-attempt the connection.
+                        time.sleep(5)
+                        break
+
+                    else:
+                        print("unexpected error")
+                        time.sleep(1)
+
         except Exception as e:
-            exitCode = os.EX_SOFTWARE
-            print("%s: error in capture: [%s]" % (datetime.datetime.now(), e), flush=True)
-            break
+            print(e)
 
     if not webserver is None and webserver.isRunning():
         print("%s: web server shutting down" % (datetime.datetime.now()), flush=True)
@@ -365,19 +459,28 @@ def parseArgs():
         description="webcam.py - A High Performance MJPEG HTTP Server"
     )
     parser.add_argument(
+        "--hostname",
+        type=str,
+        required=True,
+        help="Bambu Printer IP address / hostname"
+    )
+    parser.add_argument(
+        "--password",
+        type=str,
+        required=True,
+        help="Bambu Printer Access Code"
+    )
+    parser.add_argument(
         "--width",
         type=int,
-        default=1280,
-        help="Web camera pixel width (default 1280)"
+        default=1920,
+        help="Web camera pixel width (default 1920)"
     )
     parser.add_argument(
         "--height",
         type=int,
-        default=720,
-        help="Web camera pixel height (default 720)",
-    )
-    parser.add_argument(
-        "--index", type=int, default=0, help="Video device to stream /dev/video# (default #=0)"
+        default=1080,
+        help="Web camera pixel height (default 1080)",
     )
 
     parser.add_argument("--ipv", type=int, default=4, help="IP version (default=4)")
@@ -398,10 +501,10 @@ def parseArgs():
         "--port", type=int, default=8080, help="HTTP bind port (default 8080)"
     )
     parser.add_argument(
-        "--encodewait", type=float, default=.01, help="seconds to pause between encoding frames (default .01)"
+        "--encodewait", type=float, default=.01, help="not used"
     )
     parser.add_argument(
-        "--streamwait", type=float, default=.01, help="seconds to pause between streaming frames (default .01)"
+        "--streamwait", type=float, default=.01, help="not used - is set dynamically"
     )
     parser.add_argument(
         "--rotate", type=int, default=-1, help="rotate captured image 1-359 in degrees - (default no rotation)"
