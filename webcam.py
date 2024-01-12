@@ -115,7 +115,6 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         global myargs
         if not myargs.loghttp: return
-        print(format, args)
         print(f"{datetime.datetime.now()}: {self.client_address[0]} {format % args}", flush=True)
 
 
