@@ -137,7 +137,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             return
 
         fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
-        fpsT, fpsL, fpsW, fpsH = fpsFont.getbbox("A")
+        fmA, fmD = fpsFont.getmetrics()
+        fmD = fmD * -1 + 1
+        
         startTime = time.time()
         primed = False
         addBreaks = False
@@ -155,16 +157,20 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             if myargs.showfps and primed: 
                 draw = ImageDraw.Draw(jpg)
-                draw.text((0, 0), "%s" % streamKey, font=fpsFont)
-                draw.text((0, fpsH + 1), "%s" % datetime.datetime.now(), font=fpsFont)
-                draw.text((0, fpsH * 2 + 2), "Encode: %.1f FPS" % self.server.getEncodeFps(), font=fpsFont)
-                if streamKey in streamFps: 
+
+                message = f"{streamKey}\n{datetime.datetime.now()}\nEncode: {round(self.server.getEncodeFps(), 1)} FPS"
+
+                if streamKey in streamFps:
                     fpssum = 0.
                     fpsavg = 0.
                     for fps in streamFps:
                         fpssum = fpssum + streamFps[fps]
                     fpsavg = fpssum / len(streamFps)
-                    draw.text((0, fpsH * 3 + 3), "Streams: %d @ %.1f FPS (avg)" % (len(streamFps), streamFps[streamKey]), font=fpsFont)
+                    message = message + f"\nStreams: {len(streamFps)} @ {round(streamFps[streamKey], 1)} FPS"
+
+                bbox = draw.textbbox((0, fmD), message, font=fpsFont)
+                draw.rectangle(bbox, fill="black")
+                draw.text((0, fmD), message, font=fpsFont)
 
             try:
                 tmpFile = BytesIO()
@@ -205,12 +211,16 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             jpg = self.server.getImage()
             if rotate != -1: jpg = jpg.rotate(rotate)
             fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
-            fpsT, fpsL, fpsW, fpsH = fpsFont.getbbox("A")
+            fmA, fmD = fpsFont.getmetrics()
+            fmD = fmD * -1 + 1
 
             draw = ImageDraw.Draw(jpg)
-            
-            draw.text((0, 0), "%s" % socket.getnameinfo((self.client_address[0], 0), 0)[0], font=fpsFont)
-            draw.text((0, fpsH + 1), "%s" % datetime.datetime.now(), font=fpsFont)
+
+            message = f"{socket.getnameinfo((self.client_address[0], 0), 0)[0]}\n{datetime.datetime.now()}"            
+
+            bbox = draw.textbbox((0, fmD), message, font=fpsFont)
+            draw.rectangle(bbox, fill="black")
+            draw.text((0, fmD), message, font=fpsFont)
 
             tmpFile = BytesIO()
             jpg.save(tmpFile, "JPEG")
