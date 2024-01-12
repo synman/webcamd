@@ -13,8 +13,9 @@ import sys
 import io
 import time
 import datetime
-import signal
+# import signal
 import threading
+import traceback
 import socket
 import argparse
 import json
@@ -135,7 +136,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             print("%s: error in stream header %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
             return
 
-        fpsFont = ImageFont.truetype("{}/SourceCodePro-Regular.ttf".format(os.path.dirname(os.path.realpath(__file__)), 20))
+        fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
         fpsT, fpsL, fpsW, fpsH = fpsFont.getbbox("A")
         startTime = time.time()
         primed = False
@@ -203,8 +204,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             jpg = self.server.getImage()
             if rotate != -1: jpg = jpg.rotate(rotate)
-
-            fpsFont = ImageFont.truetype("{}/SourceCodePro-Regular.ttf".format(os.path.dirname(os.path.realpath(__file__)), 20))
+            fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
             fpsT, fpsL, fpsW, fpsH = fpsFont.getbbox("A")
 
             draw = ImageDraw.Draw(jpg)
@@ -257,7 +257,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
     def getImage(self):
         global lastImage
-        return lastImage
+        return lastImage.copy()
     def shutdown(self):
         super().shutdown()
         self.running = False
@@ -296,7 +296,7 @@ def main():
     global encoderLock
     global encodeFps
 
-    signal.signal(signal.SIGTERM, exit_gracefully)
+    # signal.signal(signal.SIGTERM, exit_gracefully)
 
     # set_start_method('fork')
 
@@ -361,21 +361,19 @@ def main():
     while connect_attempts < MAX_CONNECT_ATTEMPTS and not webserver is None and webserver.isRunning():
         try:
             with socket.create_connection((hostname, port)) as sock:
-                try:
-                    connect_attempts += 1
-                    sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
-                    sslSock.write(auth_data)
-                    img = None
-                    payload_size = 0
+                connect_attempts += 1
+                sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
+                sslSock.write(auth_data)
+                img = None
+                payload_size = 0
 
-                    status = sslSock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-                    if status != 0:
-                        print("Socket error: {status}")
-                except socket.error as e:
-                    print(e)
-                    pass
+                status = sslSock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                if status != 0:
+                    raise Exception(f"Socket error: {status}")
 
-                sslSock.setblocking(False)
+                # sslSock.setblocking(False)
+                sslSock.settimeout(5.0)
+
                 while not webserver is None and webserver.isRunning():
                     if  time.time() > startTime + 5:
                         encodeFps = frames / 5.
@@ -384,33 +382,19 @@ def main():
                         frames = 0
                         startTime = time.time()
 
-                    try:
-                        sslSock.settimeout(5.0)
-                        dr = sslSock.recv(read_chunk_size)
-
-                    except ssl.SSLWantReadError:
-                        print("SSLWantReadError")
-                        time.sleep(1)
-                        continue
-
-                    except Exception as e:
-                        print(e)
-                        time.sleep(1)
-                        continue
+                    dr = sslSock.recv(read_chunk_size)
 
                     if img is not None and len(dr) > 0:
                         img += dr
                         if len(img) > payload_size:
-                            # We got more data than we expected.
+                            print("%s: We got more data than we expected" % (datetime.datetime.now()), flush=True)
                             img = None
                         elif len(img) == payload_size:
                             # We should have the full image now.
                             if img[:4] != jpeg_start:
-                                pass
-                                # LOGGER.error("JPEG start magic bytes missing.")
+                                print("%s: JPEG start magic bytes missing" % (datetime.datetime.now()), flush=True)
                             elif img[-2:] != jpeg_end:
-                                pass
-                                # LOGGER.error("JPEG end magic bytes missing.")
+                                print("%s: JPEG end magic bytes missing" % (datetime.datetime.now()), flush=True)
                             else:
                                 lastImage = Image.open(io.BytesIO(img)).convert('RGB')
                                 frames = frames + 1.0
@@ -434,15 +418,27 @@ def main():
                         # This occurs if the wrong access code was provided.
                         # LOGGER.error(f"{self._client._device.info.device_type}: Chamber image connection rejected by the printer. Check provided access code and IP address.")
                         # Sleep for a short while and then re-attempt the connection.
-                        time.sleep(5)
-                        break
+                        # raise Exception("no data received - possible invalid access code provided")
+                        print("%s: no data received - possible invalid access code provided" % (datetime.datetime.now()), flush=True)
 
                     else:
-                        print("unexpected error")
-                        time.sleep(1)
+                        # print("unexpected error")
+                        # time.sleep(1)
+                        # raise Exception("unknown error occurred")
+                        print("%s: unknown error occurred" % (datetime.datetime.now()), flush=True)
 
+        # except KeyboardInterrupt:
+        #     print("%s: shutdown requested" % (datetime.datetime.now()), flush=True)
+        #     sslSock.shutdown(socket.SHUT_RDWR)
+        #     break
+
+        except ConnectionResetError:
+            print("%s: Connection Reset" % (datetime.datetime.now()), flush=True)
+            
         except Exception as e:
-            print(e)
+            print("%s: %s" % (datetime.datetime.now(), traceback.format_exc()), flush=True)
+            exitCode = os.EX_TEMPFAIL
+            break
 
     if not webserver is None and webserver.isRunning():
         print("%s: web server shutting down" % (datetime.datetime.now()), flush=True)
@@ -514,8 +510,14 @@ def parseArgs():
 
     myargs = parser.parse_args()
 
-def exit_gracefully(signum, frame):
-    raise KeyboardInterrupt()
+# def exit_gracefully(signum, frame):
+#     global webserver
+
+#     if not webserver is None and webserver.isRunning():
+#         print("%s: web server shutting down" % (datetime.datetime.now()), flush=True)
+#         webserver.shutdown()
+
+#     raise KeyboardInterrupt()
 
 if __name__ == "__main__":
     main()
