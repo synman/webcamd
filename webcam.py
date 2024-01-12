@@ -95,7 +95,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             client = ("%s:%d" % (self.client_address[0], self.client_address[1]))
-            print("%s: shutdown requested by %s" % (datetime.datetime.now(), client), flush=True)
+            print(f"{datetime.datetime.now()}: shutdown requested by {client}", flush=True)
 
             exitCode = os.EX_TEMPFAIL
             self.server.shutdown()
@@ -115,7 +115,8 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         global myargs
         if not myargs.loghttp: return
-        print(("%s: " % datetime.datetime.now()) + (format % args), flush=True)
+        print(format, args)
+        print(f"{datetime.datetime.now()}: {self.client_address[0]} {format % args}", flush=True)
 
 
     def streamVideo(self, rotate=-1, showFps = False):
@@ -193,7 +194,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 frames = frames + 1
             except Exception as e:
                 # ignore broken pipes & connection reset
-                if e.args[0] not in (32, 104): print("%s: error in stream %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
+                if e.args[0] not in (32, 104): print(f"{datetime.datetime.now()}: error in stream {streamKey}:: [{e}]", flush=True)
                 break
 
         if streamKey in streamFps: streamFps.pop(streamKey)
@@ -231,7 +232,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             self.wfile.write(tmpFile.getvalue())
         except Exception as e:
-            print("%s: error in snapshot: [%s]" % (datetime.datetime.now(), e), flush=True)
+            print(f"{datetime.datetime.now()}: error in snapshot: [{e}]", flush=True)
 
         self.server.dropSession()
 
@@ -248,13 +249,13 @@ def web_server_thread():
         else:
             webserver = ThreadingHTTPServerV6((myargs.v6bindaddress, myargs.port), WebRequestHandler)
 
-        print("%s: web server started" % datetime.datetime.now(), flush=True)
+        print(f"{datetime.datetime.now()}: web server started", flush=True)
         webserver.serve_forever()
     except Exception as e:
         exitCode = os.EX_SOFTWARE
-        print("%s: web server error: [%s]" % (datetime.datetime.now(), e), flush=True)
+        print(f"{datetime.datetime.now()}: web server error: [{e}]" , flush=True)
 
-    print("%s: web server thread dead" % (datetime.datetime.now()), flush=True)
+    print(f"{datetime.datetime.now()}: web server thread dead", flush=True)
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     running = True
@@ -397,14 +398,14 @@ def main():
                     if img is not None and len(dr) > 0:
                         img += dr
                         if len(img) > payload_size:
-                            print("%s: We got more data than we expected" % (datetime.datetime.now()), flush=True)
+                            print(f"{datetime.datetime.now()}: We got more data than we expected", flush=True)
                             img = None
                         elif len(img) == payload_size:
                             # We should have the full image now.
                             if img[:4] != jpeg_start:
-                                print("%s: JPEG start magic bytes missing" % (datetime.datetime.now()), flush=True)
+                                print(f"{datetime.datetime.now()}: JPEG start magic bytes missing", flush=True)
                             elif img[-2:] != jpeg_end:
-                                print("%s: JPEG end magic bytes missing" % (datetime.datetime.now()), flush=True)
+                                print(f"{datetime.datetime.now()}: JPEG end magic bytes missing", flush=True)
                             else:
                                 lastImage = Image.open(io.BytesIO(img)).convert('RGB')
                                 frames = frames + 1.0
@@ -429,32 +430,32 @@ def main():
                         # LOGGER.error(f"{self._client._device.info.device_type}: Chamber image connection rejected by the printer. Check provided access code and IP address.")
                         # Sleep for a short while and then re-attempt the connection.
                         # raise Exception("no data received - possible invalid access code provided")
-                        print("%s: no data received - possible invalid access code provided" % (datetime.datetime.now()), flush=True)
+                        print(f"{datetime.datetime.now()}: no data received - possible invalid access code provided", flush=True)
 
                     else:
                         # print("unexpected error")
                         # time.sleep(1)
                         # raise Exception("unknown error occurred")
-                        print("%s: unknown error occurred" % (datetime.datetime.now()), flush=True)
+                        print(f"{datetime.datetime.now()}: unknown error occurred", flush=True)
 
         # except KeyboardInterrupt:
-        #     print("%s: shutdown requested" % (datetime.datetime.now()), flush=True)
+        #     print(f"{datetime.datetime.now()}: shutdown requested", flush=True)
         #     sslSock.shutdown(socket.SHUT_RDWR)
         #     break
 
         except ConnectionResetError:
-            print("%s: Connection Reset" % (datetime.datetime.now()), flush=True)
+            print(f"{datetime.datetime.now()}: Connection Reset", flush=True)
             
         except Exception as e:
-            print("%s: %s" % (datetime.datetime.now(), traceback.format_exc()), flush=True)
+            print(f"{datetime.datetime.now()}: {traceback.format_exc()}", flush=True)
             exitCode = os.EX_TEMPFAIL
             break
 
     if not webserver is None and webserver.isRunning():
-        print("%s: web server shutting down" % (datetime.datetime.now()), flush=True)
+        print(f"{datetime.datetime.now()}: web server shutting down", flush=True)
         webserver.shutdown()
 
-    print("%s: ExitCode=%d - Goodbye!" % (datetime.datetime.now(), exitCode), flush=True)
+    print(f"{datetime.datetime.now()}: ExitCode={exitCode} - Goodbye!", flush=True)
     sys.exit(exitCode)
 
 
@@ -524,7 +525,7 @@ def parseArgs():
 #     global webserver
 
 #     if not webserver is None and webserver.isRunning():
-#         print("%s: web server shutting down" % (datetime.datetime.now()), flush=True)
+#         print(f"{datetime.datetime.now()}: web server shutting down", flush=True)
 #         webserver.shutdown()
 
 #     raise KeyboardInterrupt()
