@@ -59,13 +59,18 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
         if self.path.lower().startswith("/?stream"):
             qs = parse_qs(urlparse(self.path).query)
+            showFps = myargs.showfps 
+            if "showfps" in self.path.lower():
+                showFps = True
+            if "hidefps" in self.path.lower():
+                showFps = False
             if "rotate" in qs:
-                self.streamVideo(rotate=int(qs["rotate"][0]))
+                self.streamVideo(rotate=int(qs["rotate"][0]), showFps=showFps)
                 return
             if myargs.rotate != -1:
-                self.streamVideo(rotate=myargs.rotate)
+                self.streamVideo(rotate=myargs.rotate, showFps=showFps)
                 return
-            self.streamVideo()
+            self.streamVideo(showFps=showFps)
             return
 
         if self.path.lower().startswith("/?info"):
@@ -94,11 +99,14 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-type", "text/html")
             self.end_headers()
 
+            self.wfile.write(("<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title></head><body>" +
+                             "webcamd is shutting down now!</body></html>").encode("utf-8"))
+
             client = ("%s:%d" % (self.client_address[0], self.client_address[1]))
             print(f"{datetime.datetime.now()}: shutdown requested by {client}", flush=True)
 
             exitCode = os.EX_TEMPFAIL
-            self.server.shutdown()
+            self.server.die()
             self.server.unlockEncoder()
             return
 
@@ -122,40 +130,42 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         global myargs
         global streamFps
 
-        frames = 0
-        self.server.addSession()
-        streamKey = ("%s:%d" % (socket.getnameinfo((self.client_address[0], 0), 0)[0], self.client_address[1]))
-
         try:
+            if self.server.getImage() is None:
+                self.send_error(425, "Too Early", "The server is not yet ready to serve requests.  Please try again momentarily.")
+                return
             self.send_response(200)
-            self.send_header(
-                "Content-type", "multipart/x-mixed-replace; boundary=boundarydonotcross"
-            )
+            self.send_header("Content-type", "multipart/x-mixed-replace; boundary=boundarydonotcross")
             self.end_headers()
         except Exception as e:
             print("%s: error in stream header %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
             return
 
+        frames = 0
+        self.server.addSession()
+        streamKey = ("%s:%d" % (socket.getnameinfo((self.client_address[0], 0), 0)[0], self.client_address[1]))
+
         fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
         fmA, fmD = fpsFont.getmetrics()
-        fmD = fmD * -1 + 1
+        fmD = fmD * -1
         
         startTime = time.time()
         primed = False
         addBreaks = False
 
-        while self.server.isRunning():
+        while not self is None and not self.server is None and self.server.isRunning():
             if time.time() > startTime + 5:
                 streamFps[streamKey] = frames / 5.
-                # if myargs.showfps: print("%s: streaming @ %.2f FPS to %s - wait time %.5f" % (datetime.datetime.now(), streamFps[streamKey], streamKey, myargs.streamwait), flush=True)
+                # if showfps: print("%s: streaming @ %.2f FPS to %s - wait time %.5f" % (datetime.datetime.now(), streamFps[streamKey], streamKey, myargs.streamwait), flush=True)
                 frames = 0
                 startTime = time.time()
                 primed = True
 
             jpg = self.server.getImage()
+
             if rotate != -1: jpg = jpg.rotate(rotate)
 
-            if myargs.showfps and primed: 
+            if showFps and primed: 
                 draw = ImageDraw.Draw(jpg)
 
                 message = f"{streamKey}\n{datetime.datetime.now()}\nEncode: {round(self.server.getEncodeFps(), 1)} FPS"
@@ -199,20 +209,25 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         if streamKey in streamFps: streamFps.pop(streamKey)
         self.server.dropSession()
 
-
     def sendSnapshot(self, rotate=-1):
-        global lastImage
-
-        self.server.addSession()
-
         try:
-            self.send_response(200)
-
             jpg = self.server.getImage()
+
+            if jpg is None:
+                self.send_error(425, "Too Early", "The server is not yet ready to serve requests.  Please try again momentarily.")
+                return
+
+            self.send_response(200)
+            self.send_header("Content-type", "image/jpeg")
+            self.send_header("Content-length", str(len(tmpFile.getvalue())))
+            self.end_headers()
+
+            self.server.addSession()
+
             if rotate != -1: jpg = jpg.rotate(rotate)
             fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
             fmA, fmD = fpsFont.getmetrics()
-            fmD = fmD * -1 + 1
+            fmD = fmD * -1 
 
             draw = ImageDraw.Draw(jpg)
 
@@ -224,10 +239,6 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             tmpFile = BytesIO()
             jpg.save(tmpFile, "JPEG")
-
-            self.send_header("Content-type", "image/jpeg")
-            self.send_header("Content-length", str(len(tmpFile.getvalue())))
-            self.end_headers()
 
             self.wfile.write(tmpFile.getvalue())
         except Exception as e:
@@ -254,7 +265,7 @@ def web_server_thread():
         exitCode = os.EX_SOFTWARE
         print(f"{datetime.datetime.now()}: web server error: [{e}]" , flush=True)
 
-    print(f"{datetime.datetime.now()}: web server thread dead", flush=True)
+    print(f"{datetime.datetime.now()}: web server thread died", flush=True)
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     running = True
@@ -267,8 +278,12 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
     def getImage(self):
         global lastImage
-        return lastImage.copy()
-    def shutdown(self):
+        if not lastImage is None:
+            return lastImage.copy()
+        else:
+            return None
+        
+    def die(self):
         super().shutdown()
         self.running = False
     def isRunning(self):
@@ -429,7 +444,8 @@ def main():
                         # LOGGER.error(f"{self._client._device.info.device_type}: Chamber image connection rejected by the printer. Check provided access code and IP address.")
                         # Sleep for a short while and then re-attempt the connection.
                         # raise Exception("no data received - possible invalid access code provided")
-                        print(f"{datetime.datetime.now()}: no data received - possible invalid access code provided", flush=True)
+                        # print(f"{datetime.datetime.now()}: no data received - possible invalid access code provided", flush=True)
+                        raise Exception("no data received - possible invalid access code provided")
 
                     else:
                         # print("unexpected error")
@@ -452,7 +468,7 @@ def main():
 
     if not webserver is None and webserver.isRunning():
         print(f"{datetime.datetime.now()}: web server shutting down", flush=True)
-        webserver.shutdown()
+        webserver.die()
 
     print(f"{datetime.datetime.now()}: ExitCode={exitCode} - Goodbye!", flush=True)
     sys.exit(exitCode)
