@@ -59,6 +59,8 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
         if self.path.lower().startswith("/?stream"):
             qs = parse_qs(urlparse(self.path).query)
+            if "encodewait" in qs:
+                myargs.encodewait = float(qs["encodewait"][0])
             showFps = myargs.showfps 
             if "showfps" in self.path.lower():
                 showFps = True
@@ -94,6 +96,19 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(jsonstr.encode("utf-8"))
             return
 
+        if self.path.lower().startswith("/?frame"):
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+
+            self.wfile.write(("<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title></head><body bgcolor='black'><center>" +
+                             "<img width='95%' id='stream' src='/?stream' onclick=\"(function(){stream.src='/?stream&tm='+Date.now();return false;})();return false;\" " +
+                             "onerror=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 5000);return false;})();return false;\" " +
+                             "onabort=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 5000);return false;})();return false;\" " +
+                             "onstalled=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 5000);return false;})();return false;\" " +
+                             "/></center></body></html>").encode("utf-8"))
+            return
+        
         if self.path.lower().startswith("/?shutdown"):
             self.send_response(200)
             self.send_header("Content-type", "text/html")
@@ -116,6 +131,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         host = self.headers.get('Host')
         self.wfile.write((
             "<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title></head><body>Specify <a href='http://" + host +
+            "/?frame'>/?frame</a> to host a stream in an <img> object, <a href='http://" + host +
             "/?stream'>/?stream</a> to stream, <a href='http://" + host +
             "/?snapshot'>/?snapshot</a> for a picture, or <a href='http://" + host +
             "/?info'>/?info</a> for statistics and configuration information</body></html>").encode("utf-8"))
@@ -132,7 +148,12 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
         try:
             if self.server.getImage() is None:
-                self.send_error(425, "Too Early", "The server is not yet ready to serve requests.  Please try again momentarily.")
+                self.send_response(200)
+                self.send_header("Content-type", "text/html")
+                self.end_headers()
+                self.wfile.write((
+                    "<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title><meta http-equiv='refresh' content='30'>" +
+                    "</head><body>Loading MJPEG Stream . . .</body></html>").encode("utf-8"))
                 return
             self.send_response(200)
             self.send_header("Content-type", "multipart/x-mixed-replace; boundary=boundarydonotcross")
@@ -145,7 +166,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         self.server.addSession()
         streamKey = ("%s:%d" % (socket.getnameinfo((self.client_address[0], 0), 0)[0], self.client_address[1]))
 
-        fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
+        fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 14)
         fmA, fmD = fpsFont.getmetrics()
         fmD = fmD * -1
         
@@ -225,7 +246,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             self.server.addSession()
 
             if rotate != -1: jpg = jpg.rotate(rotate)
-            fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 20)
+            fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 14)
             fmA, fmD = fpsFont.getmetrics()
             fmD = fmD * -1 
 
@@ -344,9 +365,11 @@ def main():
     port = 6000
 
     MAX_CONNECT_ATTEMPTS = 12
+    MAX_READ_TIMEOUTS    = 10
 
     auth_data = bytearray()
     connect_attempts = 0
+    read_timeouts = 0
 
     auth_data += struct.pack("<I", 0x40)   # '@'\0\0\0
     auth_data += struct.pack("<I", 0x3000) # \0'0'\0\0
@@ -397,17 +420,25 @@ def main():
                     raise Exception(f"Socket error: {status}")
 
                 # sslSock.setblocking(False)
-                sslSock.settimeout(5.0)
+                sslSock.settimeout(10.0)
 
-                while not webserver is None and webserver.isRunning():
+                while not webserver is None and webserver.isRunning() and read_timeouts < MAX_READ_TIMEOUTS:
                     if  time.time() > startTime + 5:
                         encodeFps = frames / 5.
+                        if encodeFps <= 0: encodeFps = 1
                         myargs.streamwait = 1 / encodeFps
                         # if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
                         frames = 0
                         startTime = time.time()
+                        # dr = 0
 
-                    dr = sslSock.recv(read_chunk_size)
+                    try:
+                        dr = sslSock.recv(read_chunk_size)
+                    except TimeoutError as e:
+                        time.sleep(1)
+                        print(f"{datetime.datetime.now()}: socket read timeout", flush=True)
+                        read_timeouts = read_timeouts + 1
+                        continue
 
                     if img is not None and len(dr) > 0:
                         img += dr
@@ -421,6 +452,7 @@ def main():
                             elif img[-2:] != jpeg_end:
                                 print(f"{datetime.datetime.now()}: JPEG end magic bytes missing", flush=True)
                             else:
+                                read_timeouts = 0
                                 lastImage = Image.open(io.BytesIO(img)).convert('RGB')
                                 frames = frames + 1.0
                                 if encoderLock.locked():
@@ -428,6 +460,7 @@ def main():
                                     encoderLock.release()
                             # Reset buffer
                             img = None
+                            time.sleep(myargs.encodewait)
                         # else:     
                         # Otherwise we need to continue looping without reseting the buffer to receive the remaining data
                         # and without delaying.
@@ -443,9 +476,10 @@ def main():
                         # This occurs if the wrong access code was provided.
                         # LOGGER.error(f"{self._client._device.info.device_type}: Chamber image connection rejected by the printer. Check provided access code and IP address.")
                         # Sleep for a short while and then re-attempt the connection.
-                        # raise Exception("no data received - possible invalid access code provided")
-                        # print(f"{datetime.datetime.now()}: no data received - possible invalid access code provided", flush=True)
-                        raise Exception("no data received - possible invalid access code provided")
+                        time.sleep(1)
+                        print(f"{datetime.datetime.now()}: no data received - possible invalid access code provided", flush=True)
+                        read_timeouts = read_timeouts + 1
+                        continue
 
                     else:
                         # print("unexpected error")
@@ -469,6 +503,8 @@ def main():
     if not webserver is None and webserver.isRunning():
         print(f"{datetime.datetime.now()}: web server shutting down", flush=True)
         webserver.die()
+
+    time.sleep(1)
 
     print(f"{datetime.datetime.now()}: ExitCode={exitCode} - Goodbye!", flush=True)
     sys.exit(exitCode)
@@ -496,13 +532,13 @@ def parseArgs():
         "--width",
         type=int,
         default=1920,
-        help="Web camera pixel width (default 1920)"
+        help="web camera pixel width (default 1920)"
     )
     parser.add_argument(
         "--height",
         type=int,
         default=1080,
-        help="Web camera pixel height (default 1080)",
+        help="web camera pixel height (default 1080)",
     )
 
     parser.add_argument("--ipv", type=int, default=4, help="IP version (default=4)")
@@ -523,10 +559,10 @@ def parseArgs():
         "--port", type=int, default=8080, help="HTTP bind port (default 8080)"
     )
     parser.add_argument(
-        "--encodewait", type=float, default=.01, help="not used"
+        "--encodewait", type=float, default=.5, help="seconds to pause between capturing encoded frames (default .5)"
     )
     parser.add_argument(
-        "--streamwait", type=float, default=.01, help="not used - is set dynamically"
+        "--streamwait", type=float, default=.01, help="not used - is set dynamically based on measured encoding fps"
     )
     parser.add_argument(
         "--rotate", type=int, default=-1, help="rotate captured image 1-359 in degrees - (default no rotation)"
