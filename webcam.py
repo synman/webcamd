@@ -103,9 +103,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             self.wfile.write(("<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title></head><body bgcolor='black'><center>" +
                              "<img width='95%' id='stream' src='/?stream' onclick=\"(function(){stream.src='/?stream&tm='+Date.now();return false;})();return false;\" " +
-                             "onerror=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 5000);return false;})();return false;\" " +
-                             "onabort=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 5000);return false;})();return false;\" " +
-                             "onstalled=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 5000);return false;})();return false;\" " +
+                             "onerror=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 10000);return false;})();return false;\" " +
+                             "onabort=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 10000);return false;})();return false;\" " +
+                             "onstalled=\"(function(){setTimeout(`stream.src='/?stream&tm='+Date.now()`, 10000);return false;})();return false;\" " +
                              "/></center></body></html>").encode("utf-8"))
             return
         
@@ -152,7 +152,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-type", "text/html")
                 self.end_headers()
                 self.wfile.write((
-                    "<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title><meta http-equiv='refresh' content='30'>" +
+                    "<html><head><title>webcamd - A High Performance MJPEG HTTP Server</title><meta http-equiv='refresh' content='5'>" +
                     "</head><body>Loading MJPEG Stream . . .</body></html>").encode("utf-8"))
                 return
             self.send_response(200)
@@ -238,14 +238,9 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 self.send_error(425, "Too Early", "The server is not yet ready to serve requests.  Please try again momentarily.")
                 return
 
-            self.send_response(200)
-            self.send_header("Content-type", "image/jpeg")
-            self.send_header("Content-length", str(len(tmpFile.getvalue())))
-            self.end_headers()
-
             self.server.addSession()
 
-            if rotate != -1: jpg = jpg.rotate(rotate)
+            if rotate != -1: jpg = jpg.rotate(rotate) 
             fpsFont = ImageFont.truetype("SourceCodePro-Regular.ttf", 14)
             fmA, fmD = fpsFont.getmetrics()
             fmD = fmD * -1 
@@ -260,6 +255,11 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             tmpFile = BytesIO()
             jpg.save(tmpFile, "JPEG")
+
+            self.send_response(200)
+            self.send_header("Content-type", "image/jpeg")
+            self.send_header("Content-length", str(len(tmpFile.getvalue())))
+            self.end_headers()
 
             self.wfile.write(tmpFile.getvalue())
         except Exception as e:
@@ -364,7 +364,7 @@ def main():
     hostname = myargs.hostname
     port = 6000
 
-    MAX_CONNECT_ATTEMPTS = 12
+    MAX_CONNECT_ATTEMPTS = 3
     MAX_READ_TIMEOUTS    = 10
 
     auth_data = bytearray()
@@ -408,6 +408,7 @@ def main():
     # Further attempts to receive data will get SSLWantReadError until a new image is ready (1-2 seconds later)
     while connect_attempts < MAX_CONNECT_ATTEMPTS and not webserver is None and webserver.isRunning():
         try:
+            print(f"{datetime.datetime.now()}: creating socket", flush=True)
             with socket.create_connection((hostname, port)) as sock:
                 connect_attempts += 1
                 sslSock = ctx.wrap_socket(sock, server_hostname=hostname)
@@ -419,8 +420,9 @@ def main():
                 if status != 0:
                     raise Exception(f"Socket error: {status}")
 
-                # sslSock.setblocking(False)
-                sslSock.settimeout(10.0)
+                sslSock.setblocking(False)
+                # sslSock.settimeout(10.0)
+                read_timeouts = 0
 
                 while not webserver is None and webserver.isRunning() and read_timeouts < MAX_READ_TIMEOUTS:
                     if  time.time() > startTime + 5:
@@ -434,7 +436,7 @@ def main():
 
                     try:
                         dr = sslSock.recv(read_chunk_size)
-                    except TimeoutError as e:
+                    except (TimeoutError, ssl.SSLWantReadError) as e:
                         time.sleep(1)
                         print(f"{datetime.datetime.now()}: socket read timeout", flush=True)
                         read_timeouts = read_timeouts + 1
