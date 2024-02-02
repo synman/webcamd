@@ -174,6 +174,8 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         primed = False
         addBreaks = False
 
+        showRed = False
+
         while not self is None and not self.server is None and self.server.isRunning():
             if time.time() > startTime + 5:
                 streamFps[streamKey] = frames / 5.
@@ -202,6 +204,15 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 bbox = draw.textbbox((0, fmD), message, font=fpsFont)
                 draw.rectangle(bbox, fill="black")
                 draw.text((0, fmD), message, font=fpsFont)
+            
+            if myargs.flashred and showRed:
+                draw = ImageDraw.Draw(jpg)
+                bbox = (1910 - 48, 10, 1910, 48 + 10)
+                draw.ellipse(bbox, fill="#82221A", outline="#631710", width=3)
+                bbox = (1910 - 48 + 12, 10 + 12, 1910 - 12, 48 + 10 - 12)
+                draw.ellipse(bbox, fill="#E34234", outline="#AF3025", width=8)
+
+            showRed = not showRed
 
             try:
                 tmpFile = BytesIO()
@@ -438,7 +449,7 @@ def main():
                         dr = sslSock.recv(read_chunk_size)
                     except (TimeoutError, ssl.SSLWantReadError) as e:
                         time.sleep(1)
-                        print(f"{datetime.datetime.now()}: socket read timeout", flush=True)
+                        # print(f"{datetime.datetime.now()}: socket read timeout", flush=True)
                         read_timeouts = read_timeouts + 1
                         continue
 
@@ -569,6 +580,7 @@ def parseArgs():
     parser.add_argument(
         "--rotate", type=int, default=-1, help="rotate captured image 1-359 in degrees - (default no rotation)"
     )
+    parser.add_argument('--flashred', action='store_true', help="show a red dot in the upper right corner of the stream every other frame (default false)")
     parser.add_argument('--showfps', action='store_true', help="periodically show encoding / streaming frame rate (default false)")
     parser.add_argument('--loghttp', action='store_true', help="enable http server logging (default false)")
 
