@@ -1,0 +1,12 @@
+[Unit]
+Description=Octoprint camera daemon
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/webcam.py --index %I
+User=octoprint
+
+[Install]
+Alias=multi-user.target.wants/webcam@%i.service
