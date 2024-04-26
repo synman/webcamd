@@ -4,12 +4,13 @@ WORKDIR /app
 
 # Klonen des neuesten Codes aus dem GitHub Repository
 RUN apt-get update \
-    && apt-get install -y git \
+    && apt-get install -y git libjpeg-dev zlib1g-dev gcc \
     && git clone -b bambu https://github.com/synman/webcamd.git /app \
     && apt-get purge -y --auto-remove git \
     && rm -rf /var/lib/apt/lists/*
 
 # Installieren der benötigten Python-Bibliothek
+RUN pip install --upgrade pip
 RUN pip install pillow
 
 # Expose the default port for the HTTP server
