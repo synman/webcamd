@@ -11,7 +11,7 @@ name: Create and publish Docker image
 
 on:
   push:
-    branches: [ 'latest' ]
+    branches: [ 'bambu' ]
 
 env:
   REGISTRY: ghcr.io
