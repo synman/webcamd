@@ -17,6 +17,7 @@ import cv2
 import argparse
 import json
 
+from picamera2 import Picamera2
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
@@ -130,10 +131,11 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             print("%s: error in stream header %s: [%s]" % (datetime.datetime.now(), streamKey, e), flush=True)
             return
 
-        fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
-        fpsW, fpsH = fpsFont.getsize("A")
+        fpsFont = ImageFont.truetype(f"{os.path.dirname(os.path.abspath(sys.argv[0]))}/SourceCodePro-Regular.ttf", 20)
+        #fpsW, fpsH = fpsFont.getsize("A")
+        ignore,ignore,fpsW, fpsH = fpsFont.getbbox("A")
         startTime = time.time()
-        primed = False
+        primed = True
         addBreaks = False
 
         while self.server.isRunning():
@@ -199,10 +201,11 @@ class WebRequestHandler(BaseHTTPRequestHandler):
             jpg = self.server.getImage()
             if rotate != -1: jpg = jpg.rotate(rotate)
 
-            fpsFont = ImageFont.truetype('/home/pi/lcdstats/source-code-pro/SourceCodePro-Regular.ttf', 20)
-            fpsW, fpsH = fpsFont.getsize("A")
+            fpsFont = ImageFont.truetype(f"{os.path.dirname(os.path.abspath(sys.argv[0]))}/SourceCodePro-Regular.ttf", 20)
+            #fpsW, fpsH = fpsFont.getsize("A")
+            ignore,ignore,fpsW, fpsH = fpsFont.getbbox("A")
             draw = ImageDraw.Draw(jpg)
-            
+
             draw.text((0, 0), "%s" % socket.getnameinfo((self.client_address[0], 0), 0)[0], font=fpsFont)
             draw.text((0, fpsH + 1), "%s" % datetime.datetime.now(), font=fpsFont)
 
@@ -305,35 +308,33 @@ def main():
         time.sleep(.01)
 
     # initialize our opencv encoder
-    capture = cv2.VideoCapture(myargs.index)
-    capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
-    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
+    #capture = cv2.VideoCapture(myargs.index)
+    #capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
+    #capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
+
+    # Initialize Picamera2
+    picam2 = Picamera2()
+    preview_config = picam2.create_preview_configuration(main={"size": (myargs.width, myargs.height), "format": "RGB888"})
+    picam2.configure(preview_config)
+
+    picam2.start()
+    time.sleep(1)
 
     frames = 0
     startTime = time.time()
 
-    while not webserver is None and webserver.isRunning():
+    while webserver.isRunning():
         if  time.time() > startTime + 5:
             encodeFps = frames / 5.
+            # myargs.streamwait =  1. / encodeFps 
             # if myargs.showfps: print("%s: encoding @ %.2f FPS - wait time %.5f" % (datetime.datetime.now(), encodeFps, myargs.encodewait), flush=True)
             frames = 0
             startTime = time.time()
         try:
-            rc, img_bgr = capture.read()
-            if not rc:
-                print("%s: restarting encoder due to timeouts" % datetime.datetime.now(), flush=True)
-                capture.release()
-                time.sleep(myargs.encodewait)
-                capture = cv2.VideoCapture(myargs.index)
-                capture.set(cv2.CAP_PROP_FRAME_WIDTH, myargs.width)
-                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, myargs.height)
-                continue
-
-            # img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            # if myargs.rotate != -1: img = cv2.rotate(img, myargs.rotate)
-            # img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-            # if myargs.rotate != -1: img = img.rotate(myargs.rotate)
-
+            #rc, img_bgr = capture.read()
+            #img_bgr = picam2.capture_array()
+            job = picam2.capture_array(wait=False)
+            img_bgr = job.get_result(timeout=1.0) 
             lastImage = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
 
             time.sleep(myargs.encodewait)
