@@ -77,10 +77,10 @@ See bpa rules for the full policy. Short form: default to behavior that works ac
 
 **Camera stream source**: Bambu printers expose an RTSPS stream. webcamd connects to it over TLS, extracts JPEG frames, and re-serves them as MJPEG.
 
-**Credentials**: Printer IP and access code are required to connect to the RTSPS stream. Retrieve via:
+**Credentials**: Printer IP and access code are required to connect to the RTSPS stream. Retrieve from the workspace vault (`~/.claude/secrets.vault`):
 ```bash
-python ~/bambu-printer-manager/secrets.py get bambu-h2d-printer_ip
-python ~/bambu-printer-manager/secrets.py get bambu-h2d-printer_access_code
+python3 ~/ai/isaac/services/secrets.py get bambu-h2d-printer_ip
+python3 ~/ai/isaac/services/secrets.py get bambu-h2d-printer_access_code
 ```
 
 **Printer serials / IPs:**
@@ -103,6 +103,6 @@ python ~/bambu-printer-manager/secrets.py get bambu-h2d-printer_access_code
 
 **Credentials**: Access codes are 8-character strings. Never log, display, or commit them.
 
-**Secrets management**: All secrets stored in `~/.bpm_secrets` via `secrets.py`. Never hard-code or inline real values.
+**Secrets management**: All secrets stored in the workspace vault (`~/.claude/secrets.vault`) via `~/ai/isaac/services/secrets.py`. Never hard-code or inline real values.
 
 **SSL/TLS**: Camera connections use SSL. Do not disable certificate verification without explicit documented justification.
