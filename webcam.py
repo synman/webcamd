@@ -258,7 +258,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
 
             draw = ImageDraw.Draw(jpg)
 
-            message = f"{socket.getnameinfo((self.client_address[0], 0), 0)[0]}\n{datetime.datetime.now()}"            
+            message = f"{datetime.datetime.now()}"
 
             bbox = draw.textbbox((0, fmD), message, font=fpsFont)
             draw.rectangle(bbox, fill="black")
