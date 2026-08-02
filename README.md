@@ -15,6 +15,12 @@ In addition to Christopher RYU's <software-github@disavowed.jp> baseline additio
 
 Bambu Printer support is based on proof of concept work found in bambulab/BambuStudio#1536 (comment) that were later optimized in [pybambu](https://github.com/greghesp/pybambu).
 
+## Docker installation
+1. Clone this repository `git clone -b bambu https://github.com/MrDrache333/webcamd`
+2. Change Environment Parameters in `docker-compose.yml`
+3. Start up the Container with `docker-compose up -d`
+
+
 ## Dependencies
 ```
 pip install pillow

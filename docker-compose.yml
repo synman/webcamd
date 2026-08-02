@@ -1,0 +1,21 @@
+version: '3.5'
+
+services:
+  webcam:
+    build: .
+    environment:
+      HOSTNAME: "192.168.178.X"
+      PASSWORD: "1234567890"
+      WIDTH: 1920
+      HEIGHT: 1080
+      IPV: 4
+      V4BINDADDRESS: 0.0.0.0
+      V6BINDADDRESS: "::"
+      PORT: 8080
+      ENCODEWAIT: ""
+      STREAMWAIT: ""
+      ROTATE: 0
+      SHOWFPS: "false"
+      LOGHTTP: "false"
+    ports:
+      - "8080:8080"
