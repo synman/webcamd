@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/env python
 
 # webcamd - A High Performance MJPEG HTTP Server
 # Original author: Igor Maculan <n3wtron@gmail.com>
