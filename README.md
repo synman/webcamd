@@ -11,7 +11,7 @@ webcam@.service is a systemd unit file for webcam.py.
 
 haproxy.cfg is a configuration file for haproxy that actually works with non-ancient versions of haproxy, and enforces SSL connections to Octoprint.
 
-In addition to Christopher RYU's <software-github@disavowed.jp> baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using pillow), and Python's multi-threaded HTTP server.
+In addition to Christopher RYU's baseline additions, this version of webcamd has been significanly reworked to run as a multi-threaded MJPEG encoder (using pillow), and Python's multi-threaded HTTP server.
 
 Bambu Printer support is based on proof of concept work found in bambulab/BambuStudio#1536 (comment) that were later optimized in [pybambu](https://github.com/greghesp/pybambu).
 
@@ -52,12 +52,12 @@ You can rotate the encoded image for all clients using the `--rotate` command li
 ```
 {
   stats: {
-    server: "qbp-webcam:8080",
+    server: "webcam:8080",
     encodeFps: 19,
     sessionCount: 1,
     avgStreamFps: 18.4,
     sessions: {
-      10.151.51.244:41578: 18.4
+      192.0.2.44:41578: 18.4
     },
     snapshots: 0
   },

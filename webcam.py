@@ -3,8 +3,8 @@
 # webcamd - A High Performance MJPEG HTTP Server
 # Original author: Igor Maculan <n3wtron@gmail.com>
 #
-# Fixes by Christopher RYU <software-github@disavowed.jp>
-# Major refactor and threading optimizations by Shell Shrader <shell@shellware.com>
+# Fixes by Christopher RYU
+# Major refactor and threading optimizations by Shell Shrader
 #
 # Bambu Printer Camera Streaming - SMS - Jan 2024
 #
